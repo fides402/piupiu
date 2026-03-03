@@ -1,7 +1,7 @@
 [build]
   publish = "public"
   functions = "netlify/functions"
-  command = ""
+  command = "npm install"
 
 [build.environment]
   NODE_VERSION = "18"
@@ -10,8 +10,10 @@
   from = "/api/discover"
   to = "/.netlify/functions/discover"
   status = 200
+  force = true
 
 [[redirects]]
   from = "/api/taste"
   to = "/.netlify/functions/taste"
   status = 200
+  force = true
