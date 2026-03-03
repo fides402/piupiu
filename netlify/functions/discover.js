@@ -31,10 +31,22 @@ function splitLine(line) {
 
 // ── Google Sheets ────────────────────────────────────────────────
 async function fetchTasteProfile() {
-  const url = `https://docs.google.com/spreadsheets/d/${process.env.GOOGLE_SHEETS_ID}/export?format=csv&gid=0`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Sheets ${res.status}`);
-  return parseCSV(await res.text());
+  const id = process.env.GOOGLE_SHEETS_ID;
+  // gviz endpoint works for any "Anyone with link can view" sheet, no gid needed
+  const urls = [
+    `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv`,
+    `https://docs.google.com/spreadsheets/d/${id}/export?format=csv`,
+    `https://docs.google.com/spreadsheets/d/${id}/pub?output=csv`
+  ];
+  for (const url of urls) {
+    const res = await fetch(url, { redirect: 'follow' });
+    if (res.ok) {
+      const text = await res.text();
+      if (text.trim().startsWith('<')) continue; // got HTML login page, try next
+      return parseCSV(text);
+    }
+  }
+  throw new Error('Cannot read Google Sheet. Make sure it is shared as "Anyone with the link can view".');
 }
 
 // ── Groq ─────────────────────────────────────────────────────────
