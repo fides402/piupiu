@@ -54,37 +54,87 @@ async function fetchTasteProfile() {
   throw new Error('Cannot read Google Sheet. Make sure it is shared as "Anyone with the link can view".');
 }
 
-// ── Groq ─────────────────────────────────────────────────────────
-async function getRecommendation(tracks, suggested, userMessage) {
-  const tasteSummary = tracks.slice(0, 60).map(t => {
+// ── Multi-dimensional taste analysis ─────────────────────────────
+function analyzeTaste(tracks) {
+  const artistCount = {};
+  const albumCount = {};
+
+  for (const t of tracks) {
+    const a = (t.Artist || t.artist || t.ARTIST || '').trim();
+    const al = (t.Album || t.album || '').trim();
+    if (a) artistCount[a] = (artistCount[a] || 0) + 1;
+    if (al) albumCount[al] = (albumCount[al] || 0) + 1;
+  }
+
+  const topArtists = Object.entries(artistCount)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 30)
+    .map(([name, n]) => n > 1 ? `${name} (×${n})` : name)
+    .join(', ');
+
+  const topAlbums = Object.entries(albumCount)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 15)
+    .map(([name, n]) => n > 1 ? `${name} (×${n})` : name)
+    .join(', ');
+
+  const sample = tracks.slice(0, 150).map(t => {
     const a = t.Artist || t.artist || t.ARTIST || '';
     const s = t.Track || t.track || t.Title || t.title || t.Song || t.song || '';
     const al = t.Album || t.album || '';
-    return [a, s, al ? `[${al}]` : ''].filter(Boolean).join(' - ');
+    return [a, s, al ? `[${al}]` : ''].filter(Boolean).join(' – ');
   }).filter(Boolean).join('\n');
 
+  return { topArtists, topAlbums, sample };
+}
+
+// ── Groq ─────────────────────────────────────────────────────────
+async function getRecommendation(tracks, suggested, userMessage) {
+  const { topArtists, topAlbums, sample } = analyzeTaste(tracks);
+
   const already = suggested.length
-    ? suggested.map(s => `${s.artist} - ${s.album}`).join('\n')
+    ? suggested.map(s => `${s.artist} – ${s.album}`).join('\n')
     : 'none';
 
-  const system = `You are an expert in extremely rare, obscure, and beautiful records.
-Your sole mission: recommend ONE album that is:
-- ULTRA-RARE: private press, self-released, white label, vanity press, regional/local scene, or limited to under 500 copies
-- MUSICALLY EXCEPTIONAL: a hidden masterpiece, not just obscure for obscurity's sake
-- COHERENT with the user's taste but unexpected and surprising
-- NOT in the already-suggested list
-- NEVER mainstream (no Beatles, Rolling Stones, Pink Floyd, Radiohead, Nirvana, etc.)
-- NEVER critically overexposed (no Pitchfork darlings, no RYM top 500)
+  const system = `You are a hyper-specialized music expert and deep crate digger.
+Your task: recommend ONE ultra-rare album that is a perfect multi-dimensional match.
 
-Prefer:
-- Library music, private press folk, regional prog/psych, forgotten soul/funk 45s, obscure jazz from non-US countries, avant-garde/experimental from Eastern Europe or South America, minimal synth/wave from the early 80s
-- Albums with almost no online presence, discovered only through deep crate digging
+MANDATORY ANALYSIS PROCESS — reason across ALL these axes before choosing:
+1. SONIC PALETTE — timbre, texture, production aesthetics, instrumentation density
+2. RHYTHMIC LANGUAGE — groove style, tempo range, pulse feel, rhythmic complexity
+3. HARMONIC/MELODIC IDENTITY — modal/tonal/atonal tendencies, harmonic tension, melodic contour
+4. STRUCTURAL APPROACH — track lengths, repetition vs variation, improvisation vs composition
+5. GEOGRAPHICAL/CULTURAL ROOTS — which scenes, countries, local traditions dominate
+6. TEMPORAL ERA — dominant decades, production techniques of that period
+7. EMOTIONAL AXIS — energy level, mood, introspection vs extroversion, darkness vs brightness
+
+Only pick an album that scores highly across AT LEAST 5 of these 7 axes simultaneously.
+Mediocre thematic matches are NOT acceptable — it must be a genuinely deep, multi-axis fit.
+
+RARITY RULES (ALL must apply):
+- Private press / self-released / white label / vanity press / regional scene / ≤500 copies pressed
+- NOT mainstream, NOT on RYM top 1000, NOT a Pitchfork darling
 - Non-Anglophone artists strongly preferred
+- Never suggest anything from the already-suggested list
+
+In the "why" field you MUST explicitly name which taste dimensions (from the 7 above) this album matches and why.
 
 Reply ONLY with a raw JSON object, no markdown:
-{"artist":"...","album":"...","year":"YYYY","genre":"...","why":"2-3 sentences about why it matches the taste and why it's a masterpiece","rarity":"1 sentence on extreme rarity and how to find it"}`;
+{"artist":"...","album":"...","year":"YYYY","genre":"...","why":"cite 3+ specific taste dimensions and why it's a hidden masterpiece","rarity":"how rare it is and how to track it down"}`;
 
-  const user = `TASTE:\n${tasteSummary}\n\nALREADY SUGGESTED (NEVER repeat):\n${already}\n\nUSER: ${userMessage || 'qualcosa di rarissimo e bellissimo'}\n\nJSON:`;
+  const user = `TOP ARTISTS (by listening frequency): ${topArtists}
+
+TOP ALBUMS (most played): ${topAlbums}
+
+FULL TRACK SAMPLE:
+${sample}
+
+ALREADY SUGGESTED — NEVER REPEAT:
+${already}
+
+USER REQUEST: ${userMessage || 'qualcosa di rarissimo e perfettamente in linea con i miei gusti'}
+
+JSON:`;
 
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
@@ -95,8 +145,8 @@ Reply ONLY with a raw JSON object, no markdown:
     body: JSON.stringify({
       model: 'llama-3.3-70b-versatile',
       messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-      temperature: 0.95,
-      max_tokens: 500
+      temperature: 0.9,
+      max_tokens: 600
     })
   });
 
