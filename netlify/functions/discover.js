@@ -78,7 +78,7 @@ Reply ONLY with a raw JSON object, no markdown:
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      model: 'llama3-70b-8192',
+      model: 'llama-3.3-70b-versatile',
       messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
       temperature: 0.9,
       max_tokens: 400
