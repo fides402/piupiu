@@ -6,6 +6,12 @@ const CORS = {
   'Access-Control-Allow-Headers': 'Content-Type'
 };
 
+// ── YouTube ReVanced intent URL ───────────────────────────────────
+function ytIntent(url) {
+  return url.replace(/^https?:\/\//, 'intent://') +
+    '#Intent;scheme=http;action=android.intent.action.VIEW;end';
+}
+
 // ── CSV parser (no csv-parse library needed) ─────────────────────
 function parseCSV(text) {
   const lines = text.replace(/\r/g, '').split('\n').filter(l => l.trim());
@@ -169,7 +175,7 @@ async function findYouTubeFallback(artist, album) {
     if (pRes.ok) {
       const items = (await pRes.json()).items || [];
       if (items.length > 0) {
-        return `https://www.youtube.com/playlist?list=${items[0].id.playlistId}`;
+        return ytIntent(`https://www.youtube.com/playlist?list=${items[0].id.playlistId}`);
       }
     }
   } catch {}
@@ -184,11 +190,11 @@ async function findYouTubeFallback(artist, album) {
     if (vRes.ok) {
       const items = (await vRes.json()).items || [];
       const best = items.find(i => /full (album|lp)/i.test(i.snippet.title)) || items[0];
-      if (best) return `https://www.youtube.com/watch?v=${best.id.videoId}`;
+      if (best) return ytIntent(`https://www.youtube.com/watch?v=${best.id.videoId}`);
     }
   } catch {}
 
-  return `https://www.youtube.com/results?search_query=${encodeURIComponent(`${artist} ${album} full album`)}`;
+  return ytIntent(`https://www.youtube.com/results?search_query=${encodeURIComponent(`${artist} ${album} full album`)}`);
 }
 
 // ── Handler ──────────────────────────────────────────────────────
@@ -216,7 +222,7 @@ exports.handler = async (event) => {
         videoIds = await getDiscogsVideos(discogs.id, discogs.type);
         if (videoIds.length > 0) {
           // Build YouTube playlist from Discogs video IDs
-          youtubeUrl = `https://www.youtube.com/watch_videos?video_ids=${videoIds.join(',')}`;
+          youtubeUrl = ytIntent(`https://www.youtube.com/watch_videos?video_ids=${videoIds.join(',')}`);
           break;
         }
       }
