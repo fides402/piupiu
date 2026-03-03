@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>piupiu — music discovery</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;1,400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="logo">
+        <span class="logo-icon">♫</span>
+        <span class="logo-text">piupiu</span>
+      </div>
+      <div class="header-sub">music discovery for rare ears</div>
+    </header>
+
+    <main class="main">
+      <!-- Chat input area -->
+      <div class="input-area">
+        <div class="input-wrapper">
+          <textarea
+            id="userInput"
+            class="chat-input"
+            placeholder="dimmi di cosa hai voglia... o scrivi solo ↩"
+            rows="1"
+            autofocus
+          ></textarea>
+          <button class="send-btn" id="sendBtn" title="Discover">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </button>
+        </div>
+        <div class="input-hint">premi invio per scoprire un disco raro</div>
+      </div>
+
+      <!-- Result card -->
+      <div class="result-area" id="resultArea" style="display:none">
+        <div class="card" id="albumCard">
+          <div class="card-inner">
+            <div class="cover-col">
+              <div class="cover-wrap">
+                <img id="coverImg" class="cover" src="" alt="cover" />
+                <div class="cover-placeholder" id="coverPlaceholder">
+                  <span>♪</span>
+                </div>
+              </div>
+              <a id="ytLink" class="yt-btn" href="#" target="_blank" rel="noopener">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                </svg>
+                ascolta su YouTube
+              </a>
+              <a id="discogsLink" class="discogs-btn" href="#" target="_blank" rel="noopener" style="display:none">
+                discogs →
+              </a>
+            </div>
+            <div class="info-col">
+              <div class="meta-badges" id="metaBadges"></div>
+              <h1 class="album-title" id="albumTitle"></h1>
+              <h2 class="artist-name" id="artistName"></h2>
+              <div class="why-text" id="whyText"></div>
+              <div class="rarity-note" id="rarityNote">
+                <span class="rarity-icon">◈</span>
+                <span id="rarityText"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Loading state -->
+      <div class="loading" id="loading" style="display:none">
+        <div class="loading-dots">
+          <span></span><span></span><span></span>
+        </div>
+        <div class="loading-text">sto cercando qualcosa di speciale...</div>
+      </div>
+
+      <!-- Error state -->
+      <div class="error-box" id="errorBox" style="display:none">
+        <span class="error-icon">⚠</span>
+        <span id="errorText"></span>
+      </div>
+
+      <!-- History panel -->
+      <div class="history-section" id="historySection" style="display:none">
+        <div class="history-header">
+          <span>già suggeriti</span>
+          <button class="clear-btn" id="clearBtn">svuota</button>
+        </div>
+        <div class="history-list" id="historyList"></div>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <button class="history-toggle" id="historyToggle">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polyline points="12 6 12 12 16 14"></polyline>
+        </svg>
+        cronologia
+      </button>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
