@@ -1,0 +1,17 @@
+[build]
+  publish = "public"
+  functions = "netlify/functions"
+  command = ""
+
+[build.environment]
+  NODE_VERSION = "18"
+
+[[redirects]]
+  from = "/api/discover"
+  to = "/.netlify/functions/discover"
+  status = 200
+
+[[redirects]]
+  from = "/api/taste"
+  to = "/.netlify/functions/taste"
+  status = 200
