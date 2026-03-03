@@ -1,5 +1,4 @@
-const axios = require('axios');
-const { parse } = require('csv-parse/sync');
+// Zero external dependencies — uses Node 18 built-in fetch
 
 const CORS = {
   'Content-Type': 'application/json',
@@ -7,81 +6,96 @@ const CORS = {
   'Access-Control-Allow-Headers': 'Content-Type'
 };
 
+// ── CSV parser (no csv-parse library needed) ─────────────────────
+function parseCSV(text) {
+  const lines = text.replace(/\r/g, '').split('\n').filter(l => l.trim());
+  if (lines.length < 2) return [];
+  const headers = splitLine(lines[0]);
+  return lines.slice(1).map(line => {
+    const vals = splitLine(line);
+    return Object.fromEntries(headers.map((h, i) => [h.trim(), (vals[i] || '').trim()]));
+  });
+}
+
+function splitLine(line) {
+  const out = [];
+  let cur = '', inQ = false;
+  for (const c of line) {
+    if (c === '"') { inQ = !inQ; }
+    else if (c === ',' && !inQ) { out.push(cur); cur = ''; }
+    else cur += c;
+  }
+  out.push(cur);
+  return out;
+}
+
 // ── Google Sheets ────────────────────────────────────────────────
 async function fetchTasteProfile() {
-  const sheetId = process.env.GOOGLE_SHEETS_ID;
-  const url = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=0`;
-  const response = await axios.get(url, { timeout: 12000 });
-  return parse(response.data, { columns: true, skip_empty_lines: true, trim: true });
+  const url = `https://docs.google.com/spreadsheets/d/${process.env.GOOGLE_SHEETS_ID}/export?format=csv&gid=0`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Sheets ${res.status}`);
+  return parseCSV(await res.text());
 }
 
 // ── Groq ─────────────────────────────────────────────────────────
-async function getRecommendation(tasteProfile, suggested, userMessage) {
-  const sample = tasteProfile.slice(0, 60);
-  const tasteSummary = sample.map(t => {
+async function getRecommendation(tracks, suggested, userMessage) {
+  const tasteSummary = tracks.slice(0, 60).map(t => {
     const a = t.Artist || t.artist || t.ARTIST || '';
     const s = t.Track || t.track || t.Title || t.title || t.Song || t.song || '';
     const al = t.Album || t.album || '';
     return [a, s, al ? `[${al}]` : ''].filter(Boolean).join(' - ');
   }).filter(Boolean).join('\n');
 
-  const suggestedList = suggested.length > 0
+  const already = suggested.length
     ? suggested.map(s => `${s.artist} - ${s.album}`).join('\n')
-    : 'none yet';
+    : 'none';
 
-  const systemPrompt = `You are a music discovery expert specializing in rare, obscure, underrated albums.
-Recommend ONE album coherent with the user's taste but little-known.
+  const system = `You are a music expert specializing in rare and obscure albums.
+Recommend ONE rare/little-known album matching the user's taste.
+NEVER suggest mainstream or famous albums.
+NEVER repeat albums from the already-suggested list.
+Reply ONLY with a raw JSON object, no markdown:
+{"artist":"...","album":"...","year":"YYYY","genre":"...","why":"2-3 sentences","rarity":"1 sentence"}`;
 
-Rules:
-- RARE or LITTLE-KNOWN only (no mainstream, no critically overexposed albums)
-- Coherent with demonstrated taste
-- NEVER repeat albums from the already-suggested list
-- No ultra-famous albums (no Beatles, Floyd, Zeppelin, Radiohead, etc.)
-- Prefer: private press, regional scenes, cult gems, non-Anglophone artists
+  const user = `TASTE:\n${tasteSummary}\n\nALREADY SUGGESTED:\n${already}\n\nUSER: ${userMessage || 'something rare and amazing'}\n\nJSON:`;
 
-Respond with ONLY a raw JSON object (no markdown, no explanation):
-{"artist":"...","album":"...","year":"YYYY","genre":"...","why":"...","rarity":"..."}`;
-
-  const userPrompt = `TASTE PROFILE:\n${tasteSummary}\n\nALREADY SUGGESTED:\n${suggestedList}\n\nUSER: ${userMessage || 'give me something rare and amazing'}\n\nJSON:`;
-
-  const resp = await axios.post(
-    'https://api.groq.com/openai/v1/chat/completions',
-    {
-      model: 'llama3-70b-8192',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
-      temperature: 0.9,
-      max_tokens: 500
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+      'Content-Type': 'application/json'
     },
-    {
-      headers: {
-        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      timeout: 30000
-    }
-  );
+    body: JSON.stringify({
+      model: 'llama3-70b-8192',
+      messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+      temperature: 0.9,
+      max_tokens: 400
+    })
+  });
 
-  const text = resp.data.choices[0].message.content;
-  const match = text.match(/\{[\s\S]*?\}/);
-  if (!match) throw new Error(`Groq returned no JSON: ${text.slice(0, 100)}`);
-  return JSON.parse(match[0]);
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Groq ${res.status}: ${err.slice(0, 300)}`);
+  }
+
+  const text = (await res.json()).choices[0].message.content;
+  const m = text.match(/\{[\s\S]*?\}/);
+  if (!m) throw new Error(`No JSON from Groq: ${text.slice(0, 150)}`);
+  return JSON.parse(m[0]);
 }
 
 // ── Discogs ──────────────────────────────────────────────────────
 async function searchDiscogs(artist, album) {
   try {
-    const r = await axios.get('https://api.discogs.com/database/search', {
-      params: { artist, release_title: album, type: 'master', per_page: 3 },
+    const params = new URLSearchParams({ artist, release_title: album, type: 'master', per_page: '3' });
+    const res = await fetch(`https://api.discogs.com/database/search?${params}`, {
       headers: {
         Authorization: `Discogs token=${process.env.DISCOGS_TOKEN}`,
         'User-Agent': 'piupiu/1.0'
-      },
-      timeout: 10000
+      }
     });
-    const top = r.data.results?.[0];
+    if (!res.ok) return null;
+    const top = (await res.json()).results?.[0];
     if (!top) return null;
     return {
       year: top.year || '',
@@ -96,21 +110,14 @@ async function searchDiscogs(artist, album) {
 // ── YouTube ──────────────────────────────────────────────────────
 async function findYouTubeLink(artist, album) {
   try {
-    const r = await axios.get('https://www.googleapis.com/youtube/v3/search', {
-      params: {
-        part: 'snippet',
-        q: `${artist} ${album} full album`,
-        type: 'video',
-        maxResults: 5,
-        key: process.env.YOUTUBE_API_KEY
-      },
-      timeout: 10000
+    const params = new URLSearchParams({
+      part: 'snippet', q: `${artist} ${album} full album`,
+      type: 'video', maxResults: '5', key: process.env.YOUTUBE_API_KEY
     });
-    const items = r.data.items || [];
-    const best = items.find(i =>
-      i.snippet.title.toLowerCase().includes('full album') ||
-      i.snippet.title.toLowerCase().includes('full lp')
-    ) || items[0];
+    const res = await fetch(`https://www.googleapis.com/youtube/v3/search?${params}`);
+    if (!res.ok) throw new Error('yt fail');
+    const items = (await res.json()).items || [];
+    const best = items.find(i => /full (album|lp)/i.test(i.snippet.title)) || items[0];
     if (!best) throw new Error('no results');
     return `https://www.youtube.com/watch?v=${best.id.videoId}`;
   } catch {
@@ -121,44 +128,37 @@ async function findYouTubeLink(artist, album) {
 // ── Handler ──────────────────────────────────────────────────────
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: CORS, body: '' };
-  if (event.httpMethod !== 'POST') return { statusCode: 405, headers: CORS, body: JSON.stringify({ ok: false, error: 'Method not allowed' }) };
+  if (event.httpMethod !== 'POST') return { statusCode: 405, headers: CORS, body: '{}' };
 
   try {
-    const body = event.isBase64Encoded
-      ? Buffer.from(event.body, 'base64').toString('utf-8')
+    const raw = event.isBase64Encoded
+      ? Buffer.from(event.body, 'base64').toString()
       : (event.body || '{}');
-    const { message, suggested = [] } = JSON.parse(body);
+    const { message, suggested = [] } = JSON.parse(raw);
 
-    const tasteProfile = await fetchTasteProfile();
-    const albumSuggestion = await getRecommendation(tasteProfile, suggested, message);
-    const discogsData = await searchDiscogs(albumSuggestion.artist, albumSuggestion.album);
-    const ytLink = await findYouTubeLink(albumSuggestion.artist, albumSuggestion.album);
+    const tracks = await fetchTasteProfile();
+    const pick = await getRecommendation(tracks, suggested, message);
+    const discogs = await searchDiscogs(pick.artist, pick.album);
+    const yt = await findYouTubeLink(pick.artist, pick.album);
 
     return {
-      statusCode: 200,
-      headers: CORS,
+      statusCode: 200, headers: CORS,
       body: JSON.stringify({
         ok: true,
         result: {
-          artist: albumSuggestion.artist,
-          album: albumSuggestion.album,
-          year: discogsData?.year || albumSuggestion.year || '',
-          genre: discogsData?.genres?.join(', ') || albumSuggestion.genre || '',
-          style: discogsData?.styles?.join(', ') || '',
-          why: albumSuggestion.why,
-          rarity: albumSuggestion.rarity,
-          coverUrl: discogsData?.cover || '',
-          youtubeUrl: ytLink,
-          discogsUrl: discogsData?.url || ''
+          artist: pick.artist, album: pick.album,
+          year: discogs?.year || pick.year || '',
+          genre: discogs?.genres?.join(', ') || pick.genre || '',
+          style: discogs?.styles?.join(', ') || '',
+          why: pick.why, rarity: pick.rarity,
+          coverUrl: discogs?.cover || '',
+          youtubeUrl: yt,
+          discogsUrl: discogs?.url || ''
         }
       })
     };
   } catch (e) {
     console.error('[discover]', e.message);
-    return {
-      statusCode: 500,
-      headers: CORS,
-      body: JSON.stringify({ ok: false, error: e.message })
-    };
+    return { statusCode: 500, headers: CORS, body: JSON.stringify({ ok: false, error: e.message }) };
   }
 };
